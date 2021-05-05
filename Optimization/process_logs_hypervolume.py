@@ -11,19 +11,20 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+import statistics
 
 # Input Variables
 
 # Filepath to the folder with the logs.
 # The results will be written here as well.
 # The logs should be the only text files in that folder.
-filePath = "D:\\Sync\Academic\\Papers\\CISBAT 2021\\CISBAT Benchmark\\From Jonathan 210322 LB 1.1\\Test_Results\\" 
+filePath = "D:\\Sync\Academic\\Papers\\CISBAT 2021\\CISBAT Benchmark\\From Jonathan\\From Jonathan 210322 LB 1.1\\test_Results\\" 
 
 # Number of function evaluations to analyse. Choose a low number to speed up testing this script.
 evals = 100
 
 # True for Minimization and False for maximization
-bolMinimize = True
+bolMinimize = False
 
 # Log Name Settings (used to parse the solver from the log's file name)
 log_name_limit = "_" # With what symbol should the file name be parsed?
@@ -55,7 +56,7 @@ objectiveNames = ['CEI', 'FAR']
 #Functions
 def parseObjs(filePath):
     '''Parse all objective from all logs in the file path'''
-    objectivesList = []
+    allObjectives = []
     
     #Get text files 
     textFiles = []
@@ -66,36 +67,49 @@ def parseObjs(filePath):
     
     #Read in all objectives
     for i, fileName in enumerate(textFiles):
-        #Reset counter
-        count = 0
         
         with open(filePath + fileName, "r") as file:
-               for line in file:
-                   #End if maximum evaluations reached (for logs that are too long)
-                   if count >= evals:
-                       break
-               
-                   words = line.split(" ")
-                   objectiveStrs = words[5].split(",")   
-                   objectives = list(map(lambda obj: float(obj), objectiveStrs))
-                   objectivesList.append(objectives)
-                   count += 1
-                   
+            objectivesList = []
+            
+            for line in file:
+                #End if maximum evaluations reached (for logs that are too long)
+                if len(objectivesList) >= evals:
+                    break
+                
+                words = line.split(" ")
+                objectiveStrs = words[5].split(",")   
+                objectives = list(map(lambda obj: float(obj), objectiveStrs))
+                objectivesList.append(objectives)
+            
+            # Extend for missing log values
+            if len(objectivesList) < evals:
+                print(f"WARNING: {fileName} contains only {len(objectivesList)} evals instead of {evals}")
+                
+            while len(objectivesList) < evals:
+                objectivesList.append(objectives)
+                
+            assert len(objectivesList) == evals
+            allObjectives.extend(objectivesList)
+        
     print(f"{i + 1}/{len(textFiles)} text files parsed")
-    print(f"Parsed {len(objectivesList)} sets of {len(objectivesList[0])} objectives.")
+    print(f"Parsed {evals} sets of {len(objectivesList[0])} objectives.")
     assert i + 1 == len(textFiles)
+    assert len(allObjectives) == (i + 1) * evals
     
-    return objectivesList
+    return allObjectives
 
     
 def findMinAndMaxPoints(objectivesList):
-    '''Returns the min and max points for a list of sets of objectives'''    
-    minPoint = pg.ideal(objectivesList)
-    maxPoint = pg.nadir(objectivesList)
-    
+    # Note: Pygmo Ideal and Nadir can yield different results! (Report bug)
+    '''Returns the min and max points for a list of sets of objectives'''        
+    multipleObjectives = list(zip(*objectivesList))
+       
+    minPoint = np.array([min(objective) for objective in multipleObjectives])
+    maxPoint = np.array([max(objective) for objective in multipleObjectives])
+       
     print(f"MinPoint {minPoint}")
-    print(f"MaxPoint {maxPoint}\n")
-    
+    print(f"MaxPoint {maxPoint}")
+            
     return minPoint, maxPoint
 
 
@@ -188,8 +202,12 @@ def normalizePoint(objectives, ideal_point, max_point):
     and the max (largest point).
     Ideal and max are unaffaect by minimization or maximization.
     Ideal and max should be supplied as numpy arrays.'''       
-    range_point = max_point - ideal_point
+    range_point = np.array(max_point - ideal_point)
     normPoint = (np.array(objectives) - ideal_point) / range_point
+    
+    for obj in normPoint:
+        assert(obj >= 0 and obj <= 1), f"\nObectives {objectives} \nNormalized {normPoint} \nMin {ideal_point} \nMax {max_point} \nRange {range_point}"
+    
     return normPoint
 
             
@@ -258,10 +276,11 @@ def processLog(filePath, fileName, bolMinimize, bolMOO):
 
     print ("\n" + filePath + fileName)
     print ("Parameter: %d Objectives: %d Hypervolumes: %d Times: %d" % (len(parameters), len(objectives), len(volume), len(elapsed)))
-    print ("Total time: " + str(elapsed[-1]) + " seconds")
-    print ("Average iteration: " + str(round(elapsed[-1] / len(elapsed), 1)) + " seconds")    
+    print ("Total time: " + str(elapsed[-1]) + " seconds Average iteration: " + str(round(elapsed[-1] / len(elapsed), 1)) + " seconds")
     print ("Best objective/hypervolume: " + str(volume[-1]))
     if bolMOO: print ("Pareto Indices: {} Nondominated: {} Dominated: {}".format(len(nondominatedIs), nondominatedIs.count(True), nondominatedIs.count(False)))
+    
+    assert len(volume) == evals
     
     return [fileName, elapsed, objectivesList, volume, nondominatedIs, parameters]
 
@@ -333,33 +352,33 @@ def getParetoDf(parameters, objectivesList, nondominatedIs, paretoDf = None, sol
     else:
         paretoDf = pd.concat([paretoDf, newParetoDf], axis=1)
     
-    print(paretoDf[:5])
+    #print(paretoDf[:5])
     return paretoDf
 
 
 def processHypervolumeConvergence(hypervolumeDfs, solvers, bolMOO, bolMinimize, bolWriteExcel, bolPlot):
-    '''Calculates the mean hypervolume per function evaluation and solver.
-    Returns data frame with the average hypervolume for each iteration and per solver'''
+    '''Calculates the median hypervolume per function evaluation and solver.
+    Returns data frame with the median hypervolume for each iteration and per solver'''
     print("\nProcessing convergence ...")
      
-    # Mean hypervolumes per iterations and solver
-    allMeans = [hvDf.mean(axis = 1).tolist() for hvDf in hypervolumeDfs]
-    finalMeans = [means[-1] for means in allMeans]
+    # Median hypervolumes per iterations and solver
+    allMedians= [hvDf.median(axis = 1).tolist() for hvDf in hypervolumeDfs]
+    finalMedians = [median[-1] for median in allMedians]
     
     # Sort by performance    
     if bolMOO is False and bolMinimize is True:
-        allMeans = [means for mean, means in sorted(zip(finalMeans,allMeans), reverse = False)]     
-        solvers = [solver for mean, solver in sorted(zip(finalMeans,solvers), reverse = False)]
+        allMedians = [medians for median, medians in sorted(zip(finalMedians,allMedians), reverse = False)]     
+        solvers = [solver for median, solver in sorted(zip(finalMedians,solvers), reverse = False)]
     else:
-        allMeans = [means for means, means in sorted(zip(finalMeans,allMeans), reverse = True)]     
-        solvers = [solver for mean, solver in sorted(zip(finalMeans,solvers), reverse = True)]
+        allMedians = [medians for median, medians in sorted(zip(finalMedians,allMedians), reverse = True)]     
+        solvers = [solver for median, solver in sorted(zip(finalMedians,solvers), reverse = True)]
     
     # Create dataframe with labelled columns 
-    meansDf = pd.DataFrame(allMeans).transpose()
-    meansDf.columns = [solverNameDict[solver] for solver in solvers]
+    mediansDf = pd.DataFrame(allMedians).transpose()
+    mediansDf.columns = [solverNameDict[solver] for solver in solvers]
     
     # Print last 5 rows
-    print(meansDf.tail(5))
+    print(mediansDf.tail(5))
     
     # Label
     if bolMOO is False:
@@ -372,7 +391,7 @@ def processHypervolumeConvergence(hypervolumeDfs, solvers, bolMOO, bolMinimize, 
         matplotlib.style.use(fig_style)
         plt.figure() # New figure
         
-        meansDf.plot.line(
+        mediansDf.plot.line(
             figsize = fig_size_convergence,
             color = [solverColorDict[solver] for solver in solvers],
             xlabel = 'Function Evaluations', 
@@ -381,11 +400,11 @@ def processHypervolumeConvergence(hypervolumeDfs, solvers, bolMOO, bolMinimize, 
     # Export excel with results for line plot
     if bolWriteExcel:
         # Relabel columns
-        meansDf.to_excel(filePath + "Convergence.xlsx",
+        mediansDf.to_excel(filePath + "Convergence.xlsx",
                          sheet_name = "Convergence",
                          index = False)
     
-    return meansDf
+    return mediansDf
     
 
 def processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO,  bolMinimize, bolWriteExcel, bolPlot):
@@ -401,22 +420,22 @@ def processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO,  bolMinimize, 
         results.append(lastRow.tolist())
             
     # Sort by performance
-    means = [sum(result) / len(result) for result in results] 
+    medians = [statistics.median(result) for result in results] 
     
     if bolMOO is False and bolMinimize is True:
-        results = [result for mean, result in sorted(zip(means,results), reverse = False)]
-        variance = [variance for mean, variance in sorted(zip(means,variances), reverse = False)]
-        solvers = [solver for mean, solver in sorted(zip(means,solvers), reverse = False)]
+        results = [result for median, result in sorted(zip(medians,results), reverse = False)]
+        variance = [variance for median, variance in sorted(zip(medians,variances), reverse = False)]
+        solvers = [solver for median, solver in sorted(zip(medians,solvers), reverse = False)]
     else:
-        results = [result for mean, result in sorted(zip(means,results), reverse = True)]
-        variance = [variance for mean, variance in sorted(zip(means,variances), reverse = True)]
-        solvers = [solver for mean, solver in sorted(zip(means,solvers), reverse = True)]
+        results = [result for median, result in sorted(zip(medians,results), reverse = True)]
+        variance = [variance for median, variance in sorted(zip(medians,variances), reverse = True)]
+        solvers = [solver for median, solver in sorted(zip(medians,solvers), reverse = True)]
     
     # Print variance 
     varsDf = pd.DataFrame(variances).transpose()
     varsDf.columns = solvers
     print('\nVariance')
-    print(varsDf)
+    print(varsDf.transpose())
     
     # Create dataframe
     resultsDf = pd.DataFrame(results).transpose()
@@ -443,21 +462,21 @@ def processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO,  bolMinimize, 
                          sheet_name = "Robustness",
                          index = False)
         
-    return resultsDf, means
+    return resultsDf, medians
     
 
-def processParetoFronts(paretoDfs, solvers, frontIs, means, bestDf, bolWriteExcel, bolPlot):
-    print(f"\nSolvers {len(solvers)} Pareto Dataframes {len(paretoDfs)}")
+def processParetoFronts(paretoDfs, solvers, frontIs, medians, bestDf, bolWriteExcel, bolPlot):
+    assert len(solvers) == len(paretoDfs), "\nSolvers {len(solvers)} Pareto Dataframes {len(paretoDfs)}"
     
     # Sort by performance    
     if bolMOO is False and bolMinimize is True:
-        paretoDfs = [paretoDf for mean,paretoDf in sorted(zip(means,paretoDfs), reverse = False)]
-        solvers = [solver for mean,solver in sorted(zip(means,solvers), reverse = False)]
-        frontIs= [frontI for mean,frontI in sorted(zip(means,frontIs), reverse = False)]
+        paretoDfs = [paretoDf for median,paretoDf in sorted(zip(medians,paretoDfs), reverse = False)]
+        solvers = [solver for median,solver in sorted(zip(medians,solvers), reverse = False)]
+        frontIs= [frontI for median,frontI in sorted(zip(medians,frontIs), reverse = False)]
     else:
-        paretoDfs = [paretoDf for mean,paretoDf in sorted(zip(means,paretoDfs), reverse = True)]
-        solvers = [solver for mean,solver in sorted(zip(means,solvers), reverse = True)]
-        frontIs= [frontI for mean,frontI in sorted(zip(means,frontIs), reverse = True)]
+        paretoDfs = [paretoDf for median,paretoDf in sorted(zip(medians,paretoDfs), reverse = True)]
+        solvers = [solver for median,solver in sorted(zip(medians,solvers), reverse = True)]
+        frontIs= [frontI for median,frontI in sorted(zip(medians,frontIs), reverse = True)]
         
     # Write Excel with one sheet per solver
     if bolWriteExcel:
@@ -479,7 +498,7 @@ def processParetoFronts(paretoDfs, solvers, frontIs, means, bestDf, bolWriteExce
         writer.save()
     
     # For each solver, print the front of the run provided in frontIs
-    # Typically, this should be the most average run
+    # Typically, this should be the median run
     if bolPlot:
         plt.figure() # New figure
         matplotlib.style.use(fig_style)
@@ -539,21 +558,20 @@ def processParetoFronts(paretoDfs, solvers, frontIs, means, bestDf, bolWriteExce
             ax.invert_yaxis()
             
             
-def getMostAverageRunIs(resultsDf):
-    '''Returns the index of the most average run per solver.'''
+def getMedianRunIs(resultsDf):
+    '''Returns the index of the median run per solver.'''
     solvers = resultsDf.columns    
-    meansDf = resultsDf.mean(axis = 0)
-    assert meansDf.size == len(solvers), f'Number of means ({meansDf.size}) doesnt match number of solvers({len(solvers)})'
+    mediansDf = resultsDf.median(axis = 0)
+    assert mediansDf.size == len(solvers), f'Number of medians ({mediansDf.size}) doesnt match number of solvers({len(solvers)})'
     
-    print('\nMean')
-    print(meansDf.to_string())
+    print('\nMedians')
+    print(mediansDf.to_string())
     
-    # Subtract mean and find smallest difference
-    indices = [abs(resultsDf[solver] - meansDf[solver]).idxmin() for solver in solvers]
+    # Subtract median and find smallest difference
+    indices = [abs(resultsDf[solver] - mediansDf[solver]).idxmin() for solver in solvers]
     
-    print(f'Most average runs {indices}')
+    print(f'\nMedian runs {indices}')
     return indices
-    
     
 #Main
 if __name__ == "__main__":
@@ -577,15 +595,15 @@ if __name__ == "__main__":
     # Check if this is SOO or MOO
     if len(objectivesList[0]) > 1:
         bolMOO = True
-        print("\n Single-objective")
+        print("\nMulti-objective")
     else:
         bolMOO = False
-        print("\n Multi-objective")
+        print("\nSingle-objective")
     
     # Very important for accurate Hypervolume calculation, 
     # should be minimum point as np_array
     if bolMOO:
-        print("\nFinding ideal and max points ...")
+        print("Finding ideal and max points ...")
         ideal_point, max_point = findMinAndMaxPoints(objectivesList)
     
     #Get text files 
@@ -637,23 +655,21 @@ if __name__ == "__main__":
     if bolMOO: paretoDfs.append(paretoDf)
     
     # Process hypervolumes
-    meansDf = processHypervolumeConvergence(hypervolumeDfs, solvers, bolMOO, bolMinimize, bolWriteExcel = True, bolPlot = True)
-    robustDf, means = processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO, bolMinimize, bolWriteExcel = True, bolPlot = True)
+    mediansDf = processHypervolumeConvergence(hypervolumeDfs, solvers, bolMOO, bolMinimize, bolWriteExcel = True, bolPlot = True)
+    robustDf, medians = processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO, bolMinimize, bolWriteExcel = True, bolPlot = True)
     
     # Find best-known Pareto front for MOO
     if bolMOO:
-        frontIs = getMostAverageRunIs(robustDf)
+        frontIs = getMedianRunIs(robustDf)
         totalEvals = len(textFiles) * evals
-        print(f"Evaluations {totalEvals} Parameters {len(parameters)} Objectives {len(multiObjs)} Solver Names {len(solverNames)}")
+        print(f"\nEvaluations {totalEvals} Parameters {len(parameters)} Objectives {len(multiObjs)} Solver Names {len(solverNames)}")
         assert len(multiObjs) == totalEvals and len(solverNames) == totalEvals and len(parameters) == totalEvals
-        print("\nCalculating best-known front ...")
+        print("Calculating best-known front ...")
         
         bolsNondom = findParetoIs(multiObjs, bolMinimize)
         bestDf = getParetoDf(parameters, multiObjs, bolsNondom, None, solverNames)
-        
-        print(bestDf.head(3))
-        
+                
         # Process pareto fronts
-        processParetoFronts(paretoDfs, solvers, frontIs, means, bestDf, bolWriteExcel = True, bolPlot = True)    
+        processParetoFronts(paretoDfs, solvers, frontIs, medians, bestDf, bolWriteExcel = True, bolPlot = True)    
     
     print(f"\nProcess complete, processed {len(textFiles)} logs") 
