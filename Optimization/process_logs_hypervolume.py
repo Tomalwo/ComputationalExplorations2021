@@ -18,7 +18,7 @@ import statistics
 # Filepath to the folder with the logs.
 # The results will be written here as well.
 # The logs should be the only text files in that folder.
-filePath = "D:\\Sync\Academic\\Papers\\CISBAT 2021\\CISBAT Benchmark\\From Jonathan\\From Jonathan 210322 LB 1.1\\test_Results\\" 
+filePath = "D:\\Sync\\Academic\\Teaching\\Uni Stuttgart\\2021_SS\\Computational Explorations\\Git\\ComputationalEplorations2021\\Test_Results_SOO\\" 
 
 # Number of function evaluations to analyse. Choose a low number to speed up testing this script.
 evals = 100
@@ -34,6 +34,9 @@ log_name_solver = 2 # What part of the file name is the solver?
 fig_size_convergence = (6.28, 4)
 fig_size_robust = (6.28, 4)
 fig_size_pareto = (12.56, 4)
+
+# Figure Resolution
+figDPI = 300
 
 # Figure Style
 fig_style ='seaborn-whitegrid'
@@ -396,12 +399,14 @@ def processHypervolumeConvergence(hypervolumeDfs, solvers, bolMOO, bolMinimize, 
             color = [solverColorDict[solver] for solver in solvers],
             xlabel = 'Function Evaluations', 
             ylabel = yLabel)
-    
+        
+        plt.savefig(filePath + 'convergence.png', dpi = figDPI)
+        
     # Export excel with results for line plot
     if bolWriteExcel:
         # Relabel columns
-        mediansDf.to_excel(filePath + "Convergence.xlsx",
-                         sheet_name = "Convergence",
+        mediansDf.to_excel(filePath + 'Convergence.xlsx',
+                         sheet_name = 'Convergence',
                          index = False)
     
     return mediansDf
@@ -424,11 +429,11 @@ def processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO,  bolMinimize, 
     
     if bolMOO is False and bolMinimize is True:
         results = [result for median, result in sorted(zip(medians,results), reverse = False)]
-        variance = [variance for median, variance in sorted(zip(medians,variances), reverse = False)]
+        variances = [variance for median, variance in sorted(zip(medians,variances), reverse = False)]
         solvers = [solver for median, solver in sorted(zip(medians,solvers), reverse = False)]
     else:
         results = [result for median, result in sorted(zip(medians,results), reverse = True)]
-        variance = [variance for median, variance in sorted(zip(medians,variances), reverse = True)]
+        variances = [variance for median, variance in sorted(zip(medians,variances), reverse = True)]
         solvers = [solver for median, solver in sorted(zip(medians,solvers), reverse = True)]
     
     # Print variance 
@@ -455,6 +460,8 @@ def processHypervolumeRobustness(hypervolumeDfs, solvers, bolMOO,  bolMinimize, 
         ax = resultsDf.plot(kind='box', figsize=fig_size_robust)
         ax.set_xlabel('Final Results')
         ax.set_ylabel(yLabel)
+        
+        plt.savefig(filePath + 'robustness.png', dpi = figDPI)
 
     # Export excel with results for box plot
     if bolWriteExcel:
@@ -556,6 +563,8 @@ def processParetoFronts(paretoDfs, solvers, frontIs, medians, bestDf, bolWriteEx
         if bolMinimize is False:
             ax.invert_xaxis()
             ax.invert_yaxis()
+            
+        plt.savefig(filePath + 'pareto.png', dpi = figDPI)
             
             
 def getMedianRunIs(resultsDf):
