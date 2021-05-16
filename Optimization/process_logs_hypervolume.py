@@ -18,7 +18,7 @@ import statistics
 # Filepath to the folder with the logs.
 # The results will be written here as well.
 # The logs should be the only text files in that folder.
-filePath = "D:\\Sync\\Academic\\Teaching\\Uni Stuttgart\\2021_SS\\Computational Explorations\\Git\\ComputationalEplorations2021\\Test_Results_SOO\\" 
+filePath = "D:\\Sync\\Academic\\Teaching\\Uni Stuttgart\\2021_SS\\Computational Explorations\\Git\\ComputationalExplorations2021\\Optimization\\Test_Results_SOO\\" 
 
 # Number of function evaluations to analyse. Choose a low number to speed up testing this script.
 evals = 100
