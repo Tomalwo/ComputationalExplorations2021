@@ -1,0 +1,1 @@
+corner_1,5,10;corner_2,5,10;corner_3,5,10;corner_4,5,10;50
